@@ -1,39 +1,36 @@
 package main
 
 import (
-	"fmt"
+	"flag"
+	"log"
 	"net/http"
-
-	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+var addr = flag.String("addr", ":8080", "http service address")
+
+func serveHome(w http.ResponseWriter, r *http.Request) {
+	log.Println(r.URL)
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	http.ServeFile(w, r, "home.html")
 }
 
 func main() {
-	http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
-		conn, _ := upgrader.Upgrade(w, r, nil)
-
-		for {
-			msgType, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-
-			fmt.Printf("%s sent: %s\n", conn.RemoteAddr(), string(msg))
-
-			if err = conn.WriteMessage(msgType, msg); err != nil {
-				return
-			}
-		}
-
+	flag.Parse()
+	hub := newHub()
+	go hub.run()
+	http.HandleFunc("/", serveHome)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(hub, w, r)
 	})
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "websocket.html")
-	})
-
-	http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe(*addr, nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
 }
